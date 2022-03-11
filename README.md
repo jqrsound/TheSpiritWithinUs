@@ -7,7 +7,7 @@ PLEASE NOTE: Due to the nature of the contents, this game is NOT suitable for ch
 
 Psychological thriller & exploration game • One hour • Parser-based
 
-You can find the executables for Win/OsX/Linux here: https://jqrsound.itch.io/the-spirit-within-us
+You can find the executables for Win/OsX/Linux here: <a href="https://jqrsound.itch.io/the-spirit-within-us" target="_blank">https://jqrsound.itch.io/the-spirit-within-us</a>
 
 -
 

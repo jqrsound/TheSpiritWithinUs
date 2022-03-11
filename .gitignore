@@ -2,3 +2,5 @@
 map.png
 spirit
 *.zip
+object.h
+object.c

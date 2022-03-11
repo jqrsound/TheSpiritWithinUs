@@ -1,0 +1,17 @@
+extern int executeGet(void);
+extern int executeDrop(void);
+extern int executeAsk(void);
+extern int executeGive(void);
+extern int executeInventory(void);
+extern int executeUse(void);
+extern int executeGreets(void);
+extern int executeWear(void);
+extern int executeQuestion(void);
+extern int executeManual(void);
+extern int executeVoice(void);
+extern int executeStatus(void);
+extern int executeRest(void);
+extern int executeNoEnergy(void);
+extern int executeListen(void);
+extern int executeVerbose(void);
+extern int executeUndo(void);

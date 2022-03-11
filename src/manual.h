@@ -1,0 +1,1 @@
+int manual(void);

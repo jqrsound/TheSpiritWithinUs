@@ -1,0 +1,2368 @@
+/*
+Original code by Ruud Helderman ("How to program a text adventure in C")
+For the game "THE SPIRIT WITHIN US" Alessandro Ielo added:
+.explanation: obj->description is used to describe the whole scene and obj->explanation to name individual objects.
+.originalLocation: defines the original location of the object (check misc.c)
+.power: the amount of food energy (check executeEat in inventory2.c).
+.animal: defines whether an object is an animal (check damage.c).
+.sector: defines the sector on the map of a location (check fire.c).
+.burn: defines whether an object can burn (check fire.c).
+.weapon: the number of weapons carried by the player (check move.c).
+.light: defines whether a location is lit (check misc.c).
+
+emptyRoom is used in several functions, to delete and recall objects from the map.
+      (check damage.c, fire.c, misc.c, toggle.c, executeEat)
+*/
+
+#include <stdio.h>
+#include "object.h"
+#include "toggle.h"
+
+extern int trigger, flashCountA;
+
+typedef struct object {
+   bool         (*condition)(void);
+   const char    *description;
+   const char    *explanation;
+   const char   **tags;
+   struct object *location;
+   struct object *originalLocation;
+   struct object *destination;
+   struct object *prospect;
+   const char    *details;
+   const char    *contents;
+   const char    *textGo;
+   int            weight;
+   int            capacity;
+   int            health;
+   int            impact;
+   int            trust;
+   int            power;
+   int            animal;
+   int            sector;
+   int            burn;
+   int            weapon;
+   int            light;
+   const char    *read;
+   const char  *(*open)(void);
+   const char  *(*close)(void);
+   const char  *(*lock)(void);
+   const char  *(*unlock)(void);
+} OBJECT;
+
+extern OBJECT objs[];
+
+- player
+     description "yourself"
+     explanation "yourself"
+     tags        "yourself", "myself", "me", "I"
+     location    bedroom
+     details     "You would need a mirror to look at yourself.\n"
+     contents    "You have"
+     capacity    17
+     health      60
+     impact      1
+     weapon      0
+
+- gardenEast
+    description "a front yard"
+    explanation "front yard"
+    tags        "front yard", "front", "frontyard"
+    details     "The front yard is a nice and quiet place during the night. The scent of the trees relaxes you.\n"
+    capacity    9999
+    sector      5
+
+- wallGardenEast
+    condition   { return trigger < 100016 ; }
+    description "nature all around, tall trees surround the house. "
+    tags        "east", "nature", "trees", "tree", "shrubs", "shrub"
+    location    gardenEast
+    details     "The front yard is surrounded by shrubs and trees.\n"
+    textGo      "Trees are blocking the way.\n"
+
+- wallGardenEastBurn
+    condition   { return trigger >= 100016 ; }
+    description "burning trees surround the house on fire. "
+    tags        "east", "nature", "trees", "tree", "shrubs", "shrub", "fire", "house"
+    location    gardenEast
+    details     "The front yard is surrounded by burning shrubs and trees.\n"
+    textGo      "Flames are blocking the way.\n"
+
+- intoPorch
+    description "Three steps to the west brings you back into the house.\n"
+    tags        "west", "steps", "stairs", "entrance"
+    location    gardenEast
+    destination porch
+    details     "Three steps connect the front yard to the porch.\n"
+    textGo      "You go up the stairs.\n"
+
+- dirtRoad
+    description "On the outside, you see a dirt road and "
+    tags        "road", "dirt road"
+    location    gardenEast
+    details     "A dirt road that goes to town.\n"
+    textGo      "That's the road you came from.\n"
+
+- intoGardenNorth
+    condition   { return trigger < 100016 ; }
+    description "a nice garden path going north.\n"
+    tags        "north", "path", "garden path", "stones", "stone"
+    location    gardenEast
+    destination gardenNorth
+    details     "A garden path of smooth stones.\n"
+    textGo      "You follow the gray stones.\n"
+
+- intoGardenNorthBurn
+    condition   { return trigger >= 100016 ; }
+    description "a formerly nice garden path going north.\n"
+    tags        "north", "path", "garden path", "stones", "stone"
+    location    gardenEast
+    destination gardenNorth
+    details     "A garden path of smooth stones.\n"
+    textGo      "You follow the gray stones.\n"
+
+- car
+   description "your old car"
+   explanation "car"
+   tags        "car"
+   details     "An old hatchback, nothing fancy but it gets you around.\n"
+   capacity    9999
+   sector      6
+
+- wallCar
+   description "the front seats, "
+   tags        "east", "west", "south", "seats", "front seats", "front", "front seat", "inside"
+   location    car
+   details     "The inside of the car is clean.\n"
+   textGo      "You cannot exit this way.\n"
+
+- gloveCompartment
+   description "the glove compartment "
+   explanation "glove compartment"
+   tags        "glove", "compartment", "glove compartment"
+   location    car
+   details     "The glove compartment is open.\n"
+   capacity    8
+
+- snack
+    description "a chocolate bar.\n"
+    explanation "snack"
+    tags        "snack", "bar", "chocolate", "chocolate bar"
+    location    gloveCompartment
+    details     "The snack is a bit old.\n"
+    weight      3
+    power       5
+    burn        1
+
+- intoCar
+   description "Looking south, in the darkness you recognize the shape of your car.\n"
+   tags        "south"
+   location    gardenEast
+   destination car
+   details     "An old car.\n"
+   textGo      "You open the car door and enter the car.\n"
+
+- intoGardenEast
+   description "and, through the window, a garden path going north.\n"
+   tags        "north", "path"
+   location    car
+   destination gardenEast
+   details     "It's too dark to see clearly, but it seems like an ordinary path.\n"
+   textGo      "You exit the car and close the door.\n"
+
+- carEngineOff
+     description "The car keys are in the ignition. The car engine is off.\n"
+     explanation "engine"
+     tags        "car keys", "ignition", "engine", "car engine"
+     location    car
+     details     "The car engine is off.\n"
+
+- carEngineOn
+    description "The car keys are in the ignition.\n"
+    explanation "engine"
+    tags        "car keys", "ignition", "engine", "car engine"
+    location    emptyRoom
+    details     "The car engine is on.\n"
+
+- gardenNorth
+    description "a backyard"
+    explanation "backyard"
+    tags        "backyard"
+    details     "It's a very well-kept backyard.\n"
+    capacity    9999
+    sector      5
+
+- wallGardenNorth
+    condition   { return trigger < 100016 ; }
+    description "several trees but you don't know their names, you've always been a city person before moving here.\n"
+    explanation "bushes"
+    tags        "east", "nature", "tree", "trees", "shrubs", "shrub", "bushes"
+    location    gardenNorth
+    details     "The backyard is surrounded by shrubs and trees.\n"
+    textGo      "Trees are blocking the way.\n"
+
+- letter2
+      description "a second piece of paper in the bushes.\n"
+      explanation "second piece of paper"
+      tags        "piece", "second piece", "second letter", "letter", "paper", "second paper", "second piece of paper", "piece of paper"
+      location    wallGardenNorth
+      details     "The paper is stained but readable.\n"
+      weight      1
+      burn        1
+      read        "\"A third person has appeared and it's the sum of all I've tried to save you from all these years.\nAnger fuelled by fear, by old wounds. I couldn't stop it.\nWhat was done to you has created us and it's time for this to come to a conclusion.\"\n"
+
+- wallGardenNorthBurn
+    condition   { return trigger >= 100016 ; }
+    description "several trees, in flames.\n"
+    tags        "east", "nature", "tree", "trees", "shrubs", "shrub", "bushes"
+    location    gardenNorth
+    details     "The backyard is surrounded by burning shrubs.\n"
+    textGo      "Flames are blocking the way.\n"
+
+- shed
+     description "a garden shed"
+     explanation "shed"
+     tags        "shed", "wooden shed"
+     details     "The shed stores seeds and garden tools.\n"
+     capacity    9999
+     sector      5
+
+- wallShedNorth
+     condition   { return trigger < 100016 ; }
+     description "a wall with tools, "
+     explanation "wall with tools"
+     tags        "north", "holder", "tool holder", "tool", "tools", "wall"
+     location    shed
+     details     "Some tools are missing from their hooks.\n"
+     textGo      "The room is very small, you can barely move around.\n"
+
+- screwdriver
+      description "an old screwdriver.\n"
+      explanation "screwdriver"
+      tags        "screwdriver"
+      location    wallShedNorth
+      details     "The screwdriver is not very sharp.\n"
+      weight      4
+      impact      5
+      burn        1
+
+- wallShedWest
+     condition   { return trigger < 100016 ; }
+     description "a wheelbarrow "
+     tags        "west", "wheelbarrow", "barrow", "wheel", "wheels"
+     location    shed
+     details     "The wheels of the wheelbarrow are flat.\n"
+     textGo      "The room is very small, you can barely move around.\n"
+
+- wallShedEast
+     condition   { return trigger < 100016 ; }
+     description "and several seed bags on a shelf. You notice a strange, pungent smell.\n"
+     explanation "pallet"
+     tags        "east", "shelf", "shelves", "bag", "bags", "seed bags", "seed bag", "seed", "seeds"
+     location    shed
+     details     "Only bags full of seeds here.\n"
+     textGo      "The room is very small, you can barely move around.\n"
+
+- wallShedBurn
+      condition   { return trigger >= 100016 ; }
+      description "that everything is on fire.\n"
+      tags        "east", "west", "north", "shelves"
+      location    shed
+      details     "The seed bags are on fire.\n"
+      textGo      "Inside the shed the heat is extreme.\n"
+
+- closedAidKit
+     description "a damaged plastic box on a pallet.\n"
+     explanation "plastic box"
+     tags        "box", "plastic box", "pallet"
+     location    wallShedEast
+     details     "It's a first aid kit box. It's closed.\n"
+     weight      4
+     capacity    5
+     burn        1
+     open        toggleAidKit
+     close       isAlreadyClosed
+
+- openAidKit
+     description "A damaged plastic box sits on the pallet.\n"
+     explanation "plastic box"
+     tags        "box", "plastic box", "pallet"
+     location     emptyRoom
+     details     "It's a first aid kit box.\n"
+     weight      4
+     capacity    6
+     burn        1
+     open        isAlreadyOpen
+     close       toggleAidKit
+
+- pillContainer
+     description "an old pill container.\n"
+     explanation "pill container"
+     tags        "pill container", "container"
+     location    openAidKit
+     details     "The container is scratched and damaged.\n"
+     weight      3
+     capacity    2
+     burn        1
+     open        isAlreadyOpen
+
+- pills
+      description "a bunch of tablets.\n"
+      explanation "pill"
+      tags        "pill", "tablets", "pills", "tablet"
+      location    pillContainer
+      details     "Even if they are expired, they may help to relieve the headache.\n"
+      weight      1
+      power       3
+      burn        1
+
+- exitGardenNorth
+    condition   { return trigger < 100016 ; }
+    description "A nice garden path leads south "
+    tags        "south", "path", "garden path", "south path", "path south", "stone", "stones"
+    location    gardenNorth
+    destination gardenEast
+    details     "A garden path of smooth stones.\n"
+    textGo      "You follow the gray stones.\n"
+
+- exitGardenNorthBurn
+    condition   { return trigger >= 100016 ; }
+    description "A ruined garden path leads south "
+    tags        "south", "path", "garden path", "south path", "path south", "stone", "stones"
+    location    gardenNorth
+    destination gardenEast
+    details     "A garden path of smooth stones.\n"
+    textGo      "You follow the gray stones.\n"
+
+- intoVegetableGarden
+   description "and west. "
+   tags        "west", "path", "west path", "path west"
+   location    gardenNorth
+   destination vegetableGarden
+   details     "A garden path of smooth stones.\n"
+   textGo      "You follow the gray stones.\n"
+
+- closedDoorToShed
+     description "You see the wooden door of a shed to the north.\n"
+     tags        "north", "door", "north door", "door north"
+     location    gardenNorth
+     prospect    shed
+     details     "A step and braced wooden door.\n"
+     textGo      "The door is closed.\n"
+     open        toggleShedDoor
+     close       isAlreadyClosed
+
+- openDoorToShed
+     description "You see the wooden door of a shed to the north.\n"
+     tags        "north", "door", "north door", "door north"
+     location    emptyRoom
+     destination shed
+     details     "A step and braced wooden door.\n"
+     textGo      "You enter the shed.\n"
+     open        isAlreadyOpen
+     close       toggleShedDoor
+
+- closedDoorToGardenNorth
+     description "A wooden door leads south.\n"
+     tags        "south", "door", "south door", "door south"
+     location    shed
+     prospect    gardenNorth
+     details     "A step and braced wooden door.\n"
+     textGo      "The door is closed.\n"
+     open        toggleShedDoor
+     close       isAlreadyClosed
+
+- openDoorToGardenNorth
+      description "A wooden door leads south.\n"
+      tags        "south", "door", "south door", "door south"
+      location    emptyRoom
+      destination gardenNorth
+      details     "A step and braced wooden door.\n"
+      textGo      "You walk out of the shed.\n"
+      open        isAlreadyOpen
+      close       toggleShedDoor
+
+- vegetableGarden
+    description "a vegetable garden"
+    explanation "vegetable garden"
+    tags        "garden", "vegetable garden"
+    details     "The garden is well-tended.\n"
+    capacity    9999
+    sector      4
+
+- wallVegetableGardenSouth
+    condition   { return trigger < 100012 ; }
+    description "the wall of the house, you should be near to the living room. "
+    tags        "south", "house", "wall", "window"
+    location    vegetableGarden
+    details     "The light is on inside the house.\n"
+    textGo      "The wall of the house is blocking the way.\n"
+
+- wallVegetableGardenSouthBurn
+    condition   { return trigger >= 100012 ; }
+    description "the house is starting to catch fire.\n"
+    tags        "south", "house", "wall"
+    location    vegetableGarden
+    details     "The fire is destroying the house.\n"
+    textGo      "The wall of the house is blocking the way.\n"
+
+- wallVegetableGardenNorth
+    description "When you try to look over on the other side trees block your view.\n"
+    tags        "north", "trees", "tree", "shrubs", "shrub"
+    location    vegetableGarden
+    details     "The garden is surrounded by shrubs and trees.\n"
+    textGo      "Trees are blocking the way.\n"
+
+- raisedBed
+      description "A well-maintained raised bed is in front of you.\n"
+      explanation "raised bed"
+      tags        "raised bed", "bed"
+      location    vegetableGarden
+      details     "It's a handmade four-by-four-foot raised bed.\n"
+      capacity    10
+      burn        1
+
+- tomatoesBed
+    description "that tomatoes have grown in the raised bed.\n"
+    explanation "tomatoes"
+    tags        "tomatoes", "tomato"
+    location    raisedBed
+    details     "The tomatoes are ripe.\n"
+    weight      3
+    power       6
+    burn        1
+
+- exitVegetableGarden
+    condition   { return trigger < 100012 ; }
+    description "The nice garden path "
+    tags        "east", "path", "garden path", "east path", "path east", "stone", "stones"
+    location    vegetableGarden
+    destination gardenNorth
+    details     "A garden path of smooth stones.\n"
+    textGo      "You follow the gray stones.\n"
+
+- exitVegetableGardenBrun
+    condition   { return trigger >= 100012 ; }
+    description "The garden path "
+    tags        "east", "path", "garden path", "east path", "path east", "stone", "stones"
+    location    vegetableGarden
+    destination gardenNorth
+    details     "A garden path of smooth stones.\n"
+    textGo      "You follow the gray stones.\n"
+
+- intoGardenWest
+    condition   { return trigger < 100012 ; }
+    description "continues to west.\n"
+    tags        "west", "path", "garden path", "west path", "path west", "grass"
+    location    vegetableGarden
+    destination gardenWest
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- intoGardenWestBurn
+    condition   { return trigger >= 100012 ; }
+    description "continues to west but is now destroyed.\n"
+    tags        "west", "path", "garden path", "west path", "path west", "grass"
+    location    vegetableGarden
+    destination gardenWest
+    details     "An old garden path covered in burned grass.\n"
+    textGo      "You follow the grass.\n"
+
+- gardenWest
+    description "a backyard"
+    explanation "backyard"
+    tags        "backyard"
+    details     "This part of the backyard is not tended and left to itself.\n"
+    capacity    9999
+    sector      3
+
+- wallGardenWest
+    description "that the woods thicken "
+    tags        "west"
+    location    gardenWest
+    details     "The garden is surrounded by shrubs and trees.\n"
+    textGo      "Trees are blocking the way.\n"
+
+- intoWoodsNorth
+    condition   { return trigger < 100008 ; }
+    description "and on the north side "
+    tags        "north"
+    location    gardenWest
+    destination woodsNorth
+    details     "You see an old path.\n"
+    textGo      "With difficulty you enter the woods.\n"
+
+- intoWoodsNorthPlant
+    condition   { return trigger < 100008 ; }
+    description "some plants are crushed.\n"
+    explanation "plants"
+    tags        "plants", "plant", "root", "roots", "foliage"
+    location    gardenWest
+    details     "The roots of the plants have been torn off.\n"
+
+- intoWoodsNorthBurn
+    condition   { return trigger >= 100008 ; }
+    description "and on the north side some plants are burning.\n"
+    tags        "north", "north woods", "plants", "plant"
+    location    gardenWest
+    destination woodsNorth
+    details     "You don't see any clear trail.\n"
+    textGo      "With difficulty you enter the woods.\n"
+
+- keyForGarage
+     description "a rusty key between the foliage.\n"
+     explanation "key"
+     tags        "key", "small key"
+     location    intoWoodsNorthPlant
+     details     "It's a small key, probably for a padlock.\n"
+     weight      1
+     burn        1
+
+- exitGardenWest
+    description "The old garden path leads east "
+    tags        "east", "path", "garden path", "east path", "path east"
+    location    gardenWest
+    destination vegetableGarden
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- exitWoodsNorth
+    description "that the woods thin towards the south "
+    tags        "south", "woods", "south woods", "woods south"
+    location    woodsNorth
+    destination gardenWest
+    details     "You see the path to the backyard.\n"
+    textGo      "With difficulty you exit the woods.\n"
+
+- woodsNorth
+    description "a narrow place, surrounded by trees and underbrush"
+    explanation "woods"
+    tags        "woods", "trees", "underbrush", "tree", "north woods", "woods north"
+    details     "The woods are left to themselves.\n"
+    capacity    9999
+    sector      3
+
+- wallWoodsNorth
+    condition   { return trigger < 100008 ; }
+    description "but other than that, in the dark you can't see the end of the woods surrounding you.\n"
+    tags        "north", "undergrowth"
+    location    woodsNorth
+    details     "The undergrowth covers the ground.\n"
+    textGo      "The trees are blocking the way.\n"
+
+- wallWoodsNorthBurn
+    condition   { return trigger >= 100008 ; }
+    description "but you are wrapped in flames and heat.\n"
+    tags        "north", "west", "undergrowth", "flames"
+    location    woodsNorth
+    details     "The undergrowth is on fire.\n"
+    textGo      "The flames are blocking the way.\n"
+
+- intoWoodsEast
+    condition   { return trigger < 100008 ; }
+    description "You start to panic, you don't want to get lost in the woods but "
+    tags        "east"
+    location    woodsNorth
+    destination woodsEast
+    details     "You don't see any path.\n"
+    textGo      "With difficulty you walk through the woods.\n"
+
+- intoWoodsEastBurn
+    condition   { return trigger >= 100008 ; }
+    description "You start to panic, you don't want to die now that you have recovered your memory.\n"
+    tags        "east"
+    location    woodsNorth
+    destination woodsEast
+    details     "You don't see any path.\n"
+    textGo      "With difficulty you walk through the woods.\n"
+
+- intoWoodsWest
+    condition   { return trigger < 100008 ; }
+    description "at the same time you feel that you have to do everything to recollect your memories.\n"
+    tags        "west"
+    location    woodsNorth
+    destination woodsWest
+    details     "You don't see any path.\n"
+    textGo      "With difficulty you walk through the woods.\n"
+
+- woodsEast
+    description "a narrow place, surrounded by trees and underbrush"
+    explanation "woods"
+    tags        "woods east", "east woods"
+    details     "The woods are left to themselves.\n"
+    capacity    9999
+    sector      3
+
+- wallWoodsEast
+    condition   { return trigger < 100008 ; }
+    description "almost nothing, the moonlight does not pass through the thick vegetation "
+    tags        "north", "east", "vegetation"
+    location    woodsEast
+    details     "The undergrowth covers the ground.\n"
+    textGo      "The trees are blocking the way.\n"
+
+- wallWoodsEastBurn
+    condition   { return trigger >= 100008 ; }
+    description "almost nothing, the glow of the fire blinds you "
+    tags        "north", "east", "vegetation"
+    location    woodsEast
+    details     "The undergrowth is on fire.\n"
+    textGo      "The flames are blocking the way.\n"
+
+- exitWoodsEast
+    condition   { return trigger < 100008 ; }
+    description "and the light from the torch does not help much.\n"
+    tags        "west"
+    location    woodsEast
+    destination woodsNorth
+    details     "You don't see any path.\n"
+    textGo      "With difficulty you walk through the woods.\n"
+
+- exitWoodsEastBurn
+    condition   { return trigger >= 100008 ; }
+    description "and the smoke makes your eyes cry.\n"
+    tags        "west", "smoke"
+    location    woodsEast
+    destination woodsNorth
+    details     "You don't see anything anymore.\n"
+    textGo      "With difficulty you walk through the woods.\n"
+
+- bushesWoods
+    condition   { return trigger < 100008 && berriesRed->location == bushesWoods ; }
+    description "Bushes full of berries have grown in the undergrowth.\n"
+    explanation "bushes"
+    tags        "bush", "bushes", "undergrowth", "leaves"
+    location    woodsEast
+    details     "The leaves of the bush are narrow and pointed.\n"
+    capacity    50
+    burn        1
+
+- bushesWoodsNoBerries
+    condition   { return trigger < 100008 && berriesRed->location != bushesWoods ; }
+    description "Bushes have grown in the undergrowth.\n"
+    explanation "bushes"
+    tags        "bush", "bushes", "undergrowth", "leaves"
+    location    woodsEast
+    details     "The leaves of the bush are narrow and pointed.\n"
+    capacity    50
+    burn        1
+
+- berriesRed
+    condition   { return trigger < 100008 ; }
+    description "a lot of berries.\n"
+    explanation "berry"
+    tags        "berries", "berry"
+    location    bushesWoods
+    details     "The berries are small and red.\n"
+    weight      2
+    power       -3
+    burn        1
+
+- wallWoodsEastShed
+    description "The trees are blocking your way.\n"
+    tags        "south", "trees", "tree"
+    location    woodsEast
+    details     "You see the back of the shed from here.\n"
+    textGo      "The trees are blocking the way.\n"
+
+- woodsWest
+    description "a narrow place, surrounded by trees and underbrush"
+    explanation "woods"
+    tags        "woods west", "west woods"
+    details     "The woods are left to themselves.\n"
+    capacity    9999
+    sector      3
+
+- wallWoodsWestShiny
+    description "something bright in the undergrowth, "
+    tags        "west"
+    location    woodsWest
+    details     "Something shiny comes out of the ground.\n"
+    textGo      "The trees are blocking the way.\n"
+
+- wallWoodsWest
+    description "by moving the torch "
+    tags        "north"
+    location    woodsWest
+    details     "Something happened here, the earth has been moved.\n"
+    textGo      "The trees are blocking the way.\n"
+
+- woodsWestGround
+    description "you see something sparkle in the darkness.\n"
+    explanation "ground"
+    tags        "ground", "earth", "sparkle", "bright", "undergrowth", "shiny"
+    location    woodsWest
+    details     "Something shiny comes out of the ground.\n"
+    sector      3
+
+- boxWoods
+      description "the lid of a metal box.\n"
+      explanation "metal box"
+      tags        "box", "metal box", "lock", "box lock"
+      location    woodsWestGround
+      details     "The box lock has been forced open.\n"
+      weight      10
+      capacity    10
+      burn        1
+      open        isAlreadyOpen
+
+- pictures
+      description "several black and white photos.\n"
+      explanation "picture"
+      tags        "picture", "pictures", "photo", "photos"
+      location    boxWoods
+      details     "It's a very disturbing picture of a child. There are many more and you start to feel sick.\n"
+      weight      1
+      burn        1
+
+- exitWoodsWest
+    description "You enter further into the dense vegetation, "
+    tags        "east", "vegetation"
+    location    woodsWest
+    destination woodsNorth
+    details     "You don't see any fresh path.\n"
+    textGo      "With difficulty you walk through the woods.\n"
+
+- intoWoodsSouth
+    description "and the moonlight begins to fade away.\n"
+    tags        "south"
+    location    woodsWest
+    destination woodsSouth
+    details     "You don't see any fresh path.\n"
+    textGo      "With difficulty you walk through the woods.\n"
+
+- exitWoodsSouth
+    description "something undefined between the trees "
+    tags        "north", "tree", "trees"
+    location    woodsSouth
+    destination woodsWest
+    details     "You don't see any fresh path.\n"
+    textGo      "With difficulty you walk through the woods.\n"
+
+- woodsSouth
+    description "a narrow place, surrounded by trees and underbrush"
+    tags        "woods", "south woods", "woods south"
+    details     "The woods are left to themselves.\n"
+    capacity    9999
+    sector      3
+
+- wallWoodsSouthWater
+    description "and you hear a distant sound of water.\n"
+    tags        "east", "water"
+    location    woodsSouth
+    details     "You can see a pond from here, but it's too far to reach.\n"
+    textGo      "The trees are blocking the way.\n"
+
+- wallWoodsSouth
+    description "You find yourself disoriented, "
+    tags        "south"
+    location    woodsSouth
+    details     "The undergrowth covers the ground.\n"
+    textGo      "The trees are blocking the way.\n"
+
+- intoFieldNorth
+    description "you are about to lose yourself.\n"
+    tags        "west"
+    location    woodsSouth
+    destination fieldNorth
+    details     "In the darkness you see the end of the trees and a field, a few meters below you.\n"
+    textGo      "You slip in the mud and fall for several meters.\n"
+
+- fieldNorth
+    description "an open field, full of weeds growing wild"
+    explanation "fields"
+    tags        "field", "fields", "weed", "weeds"
+    details     "The field is left to itself.\n"
+    capacity    9999
+    sector      2
+
+- wallFieldNorthSlope
+    description "the slope that leads back to the woods.\n"
+    explanation "ground"
+    tags        "north", "slope", "woods", "tree"
+    location    fieldNorth
+    details     "You see the woods where you were before.\n"
+    textGo      "You can't climb back up, the mud is too slippery.\n"
+
+- branch
+      description "broken branches that have fallen to the ground.\n"
+      explanation "branch"
+      tags        "branch", "branches", "broken", "broken branch", "broken branches"
+      location    wallFieldNorthSlope
+      details     "A sturdy branch.\n"
+      weight      4
+      impact      5
+      burn        1
+
+- intoFieldWest
+    condition   { return trigger < 100004 ; }
+    description "You find yourself to be lost. The moonlight helps you to not lose your mind.\n"
+    tags        "west", "west field"
+    location    fieldNorth
+    destination fieldWest
+    details     "In the mud you don't see any path.\n"
+    textGo      "You walk through mud.\n"
+
+- intoFieldWestBurn
+    condition   { return trigger >= 100004 ; }
+    description "You find yourself to be lost, and you start to panic.\n"
+    tags        "west", "west field"
+    location    fieldNorth
+    destination fieldWest
+    details     "In the mud you don't see any path.\n"
+    textGo      "You walk through mud.\n"
+
+- wallFieldWest
+    condition   { return trigger < 100004 ; }
+    description "only dry grass and mud all around you, "
+    tags        "north", "west", "nature", "mud", "grass"
+    location    fieldWest
+    details     "The field is very large, you almost don't see the end of it.\n"
+    textGo      "The field extends for several acres, there is nothing interesting there.\n"
+
+- wallFieldWestBurn
+    condition   { return trigger >= 100004 ; }
+    description "grass burning all around you, "
+    tags        "north", "west", "nature", "mud", "grass"
+    location    fieldWest
+    details     "The field begin to catch fire.\n"
+    textGo      "The field extends for several acres.\n"
+
+- exitFieldWest
+    description "the woods are not far away, but you can't go back that way.\n"
+    tags        "east", "west field"
+    location    fieldWest
+    destination fieldNorth
+    details     "In the mud you don't see any path.\n"
+    textGo      "You walk through mud.\n"
+
+- wallFieldNorth
+    condition   { return trigger < 100004 ; }
+    description "Wild barley grass is all around you.\n"
+    tags        "east", "south", "nature", "mud", "grass"
+    location    fieldNorth
+    details     "The field is very large, you almost don't see the end of it.\n"
+    textGo      "The field extends all around you for several acres, but there is nothing interesting there.\n"
+
+- wallFieldNorthBurn
+    condition   { return trigger >= 100004 ; }
+    description "Burning grass around you.\n"
+    tags        "east", "south", "nature", "mud", "grass"
+    location    fieldNorth
+    details     "The field begin to catch fire.\n"
+    textGo      "The field extends all around you for several acres.\n"
+
+- fieldWest
+    description "an open field"
+    explanation "fields"
+    tags        "field west"
+    details     "The field is left to itself.\n"
+    capacity    9999
+    sector      2
+
+- intoFieldSouth
+    description "You can't see any path.\n"
+    tags        "south", "south field"
+    location    fieldWest
+    destination fieldSouth
+    details     "In the mud you don't see any path.\n"
+    textGo      "You walk through mud.\n"
+
+- fieldSouth
+    description "an open field"
+    explanation "fields"
+    tags        "field south"
+    details     "The field is left to itself.\n"
+    capacity    9999
+    sector      2
+
+- wallFieldSouth
+    condition   { return trigger < 100004 ; }
+    description "only dry grass and mud all around you.\n"
+    tags        "west", "south", "nature", "mud", "grass"
+    location    fieldSouth
+    details     "The field is too large.\n"
+    textGo      "The field extends for several acres, there is nothing interesting there.\n"
+
+- wallFieldSouthBurn
+    condition   { return trigger >= 100004 ; }
+    description "grass burning all around you.\n"
+    tags        "west", "south", "nature", "mud", "grass"
+    location    fieldSouth
+    details     "The field begin to catch fire.\n"
+    textGo      "The field extends for several acres.\n"
+
+- exitFieldSouth
+    description "For a moment the sound of water reaches you from afar, "
+    tags        "north", "north field"
+    location    fieldSouth
+    destination fieldWest
+    details     "In the mud you don't see any path.\n"
+    textGo      "You walk through mud.\n"
+
+- intoFieldEast
+    condition   { return wildDog->health <= 0 || meat->location == wildDog || rawMeat->location == wildDog || oldFoxDead->location == wildDog || man->health == -1 ; }
+    description "and you wonder where it could come from.\n"
+    tags        "east"
+    location    fieldSouth
+    destination fieldEast
+    details     "In the mud you don't see any path.\n"
+    textGo      "You walk through mud.\n"
+
+- intoFieldEastBlocked
+    condition   { return (wildDog->health > 0 && meat->location != wildDog && rawMeat->location != wildDog && oldFoxDead->location != wildDog) && man->health >=0 ; }
+    description "but a sudden noise makes you shudder.\nYou point the flashlight towards the fields.\n"
+    tags        "east"
+    location    fieldSouth
+    prospect    fieldEast
+    details     "In the mud you don't see any path.\n"
+    textGo      "A wild dog stops you from walking any further.\n"
+
+- fieldEast
+    description "an open field"
+    explanation "fields"
+    tags        "field"
+    details     "The field is left to itself.\n"
+    capacity    9999
+    sector      2
+
+- wallFieldEast
+    description "only desolation all around you.\n"
+    tags        "north", "south"
+    location    fieldEast
+    details     "The field gets smaller.\n"
+    textGo      "There is nothing interesting there, only uncultivated weeds.\n"
+
+- exitFieldEast
+    description "While you keep walking, you notice that "
+    tags        "west", "west field"
+    location    fieldEast
+    destination fieldSouth
+    details     "In the mud you see an old path.\n"
+    textGo      "You walk through mud.\n"
+
+- intoGardenSouthGarder
+    description "and south.\n"
+    tags        "south", "path", "garden path", "south path", "path south"
+    location    gardenWest
+    destination gardenSouth
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- intoGardenSouthField
+    description "the grass becomes more sparse and you can see an old path.\n"
+    tags        "east", "east field", "path", "grass", "old path", "mud"
+    location    fieldEast
+    destination gardenSouth
+    details     "An old path through the mud\n"
+    textGo      "You follow the path.\n"
+
+- gardenSouth
+    description "an open garden"
+    explanation "garden"
+    tags        "garden"
+    details     "This part of the garden is not tended and left to itself.\n"
+    capacity    9999
+    sector      2
+
+- wallGardenSouth
+    condition   { return trigger < 100004 ; }
+    description "trees all around you.\n"
+    tags        "east", "nature", "tree", "trees", "shrubs", "shrub"
+    location    gardenSouth
+    details     "The garden is surrounded by shrubs and trees.\n"
+    textGo      "Trees are blocking the way.\n"
+
+- wallGardenSouthBurn
+    condition   { return trigger >= 100004 ; }
+    description "burning trees all around you.\n"
+    tags        "east", "nature", "tree", "trees"
+    location    gardenSouth
+    details     "The bushes begin to catch fire.\n"
+    textGo      "Burning trees are blocking the way.\n"
+
+- bushesGarden
+    condition   { return trigger < 100004 && berriesBlue->location == bushesGarden ; }
+    description "Bushes full of berries have grown in the undergrowth.\n"
+    explanation "bushes"
+    tags        "bush", "bushes"
+    location    gardenSouth
+    details     "The leaves of the bush are wide and smooth.\n"
+    capacity    50
+    burn        1
+
+- bushesGardenNoBerries
+    condition   { return trigger < 100004 && berriesBlue->location != bushesGarden ; }
+    description "Bushes have grown in the undergrowth.\n"
+    explanation "bushes"
+    tags        "bush", "bushes"
+    location    gardenSouth
+    details     "The leaves of the bush are wide and smooth.\n"
+    capacity    50
+    burn        1
+
+- berriesBlue
+    condition   { return trigger < 100004 ; }
+    description "a lot of berries.\n"
+    explanation "berry"
+    tags        "berries", "berry"
+    location    bushesGarden
+    details     "The berries are small and blue.\n"
+    weight      2
+    power       6
+    burn        1
+
+- exitGardenSouthGarden
+    description "The old garden path leads to north "
+    tags        "north", "garden path", "north path", "path north"
+    location    gardenSouth
+    destination gardenWest
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- intoGroveNorth
+    description "and south, "
+    tags        "south", "path", "garden path", "south path", "path south", "grass", "crushed grass"
+    location    gardenSouth
+    destination groveNorth
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- exitGardenSouthField
+    description "while another path leads to an open field.\n"
+    tags        "west", "field path", "west path", "open field", "field", "path west", "mud"
+    location    gardenSouth
+    destination fieldEast
+    details     "An old path full of mud.\n"
+    textGo      "You follow the old path, the grass gets thicker.\n"
+
+- groveNorth
+    description "a grove"
+    explanation "grove"
+    tags        "grove"
+    details     "You are now in a wild area.\n"
+    capacity    9999
+    sector      2
+
+- wallGroveNorth
+    condition   { return trigger < 100004 ; }
+    description "that the trees begin to thin out to make room for bushes and shrubs.\n"
+    tags        "east", "nature", "tree", "trees", "bushes", "bush", "shrub", "shrubs"
+    location    groveNorth
+    details     "The area is surrounded by bushes.\n"
+    textGo      "Shrubs are blocking the way.\n"
+
+- wallGroveNorthBurn
+    condition   { return trigger >= 100004 ; }
+    description "that the trees begin to catch fire.\n"
+    tags        "east", "nature", "tree", "trees", "bushes", "bush", "shrub", "shrubs"
+    location    groveNorth
+    details     "The area is surrounded by flames.\n"
+    textGo      "Burning shrubs are blocking the way.\n"
+
+- exitGroveNorth
+    description "An old path that leads north "
+    tags        "north", "path", "grove path", "north path", "path north"
+    location    groveNorth
+    destination gardenSouth
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- intoGroveWest
+    description "it is divided into two parts, one going west and "
+    tags        "west", "path", "grove path", "west path", "path west"
+    location    groveNorth
+    destination groveWest
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- groveWest
+    description "a grove"
+    explanation "grove"
+    tags        "grove west"
+    details     "You are now in a wild area.\n"
+    capacity    9999
+    sector      1
+
+- wallGroveWest
+    condition   { return trigger < 100001 ; }
+    description "almost nothing in this darkness, "
+    tags        "west", "nature"
+    location    groveWest
+    details     "The area is surrounded by trees.\n"
+    textGo      "Trees are blocking the way.\n"
+
+- wallGroveWestNorth
+    condition   { return trigger < 100001 ; }
+    description "but you hear a calm sound of water.\n"
+    explanation "undergrowth"
+    tags        "north"
+    location    groveWest
+    details     "The area is surrounded by trees.\n"
+    textGo      "Trees are blocking the way.\n"
+
+- wallGroveWestBurn
+    condition   { return trigger >= 100001 ; }
+    description "almost nothing, the glow of the fire blinds you.\n"
+    tags        "west", "north", "south", "nature"
+    location    wallGroveWestNorth
+    details     "The area is surrounded by flames.\n"
+    textGo      "Burning trees are blocking the way.\n"
+
+- letter3
+      description "a third piece of paper in the undergrowth.\n"
+      explanation "third piece of paper"
+      tags        "piece", "third piece", "third letter", "letter", "paper", "third paper", "third piece of paper", "piece of paper"
+      location    wallGroveWestNorth
+      details     "The paper is wet but readable.\n"
+      weight      1
+      burn        1
+      read        "\"I am you. I have protected you over the years without knowing that another one was that deep inside us and ready for destruction.\nI had regained control before everything went too far but I don't know what to do anymore, to destroy the third one you'll have to become whole.\nTake control to find peace again, I believe in you.\"\n"
+
+- intoPond
+    condition   { return trigger < 100001 ; }
+    description "There is a path going south and "
+    tags        "south", "path", "south path", "path south"
+    location    groveWest
+    destination pond
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- exitGroveWest
+    condition   { return trigger < 100001 ; }
+    description "one going east.\n"
+    tags        "east", "path", "grove path", "east path", "path east"
+    location    groveWest
+    destination groveNorth
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- exitGroveWestBurn
+    condition   { return trigger >= 100001 ; }
+    description "almost nothing, there is too much smoke.\n"
+    tags        "east", "path", "grove path", "east path", "path east"
+    location    groveWest
+    destination groveNorth
+    details     "An old garden path covered in burning grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- pond
+    description "a nice pond"
+    explanation "pond"
+    tags        "pond"
+    details     "The moon shines reflected in the water.\n"
+    capacity    9999
+    sector      1
+
+- wallPond
+    description "scattered trees "
+    tags        "east", "nature", "tree", "trees"
+    location    pond
+    details     "The area is surrounded by trees.\n"
+    textGo      "Trees are blocking the way.\n"
+
+- bushesPond
+    description "and dense undergrowth near the water.\n"
+    explanation "undergrowth"
+    tags        "undergrowth", "plant", "small plants", "shrubs", "shrub"
+    location    pond
+    details     "A dense growth of shrubs and small plants.\n"
+    capacity    50
+    burn        1
+
+- wallPondWater
+    description "The view of the pond calms you down for a moment.\n"
+    tags        "west", "south", "lake", "water", "algae"
+    location    pond
+    details     "The water moves slowly, it is swampy with floating algae.\n"
+    textGo      "You can't swim, you are too weak right now.\n"
+
+- mushroom
+    description "some hidden mushrooms.\n"
+    explanation "mushroom"
+    tags        "mushroom", "mushrooms"
+    location    bushesPond
+    details     "The mushrooms are brown and their top is black.\n"
+    weight      2
+    power       4
+    burn        1
+
+- exitPond
+    description "The path you came from leads north.\n"
+    tags        "north", "path", "grove path", "east path", "path east"
+    location    pond
+    destination groveWest
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- intoGroveSouth
+    description "one going south.\n"
+    tags        "south", "path", "grove path", "south path", "path south"
+    location    groveNorth
+    destination groveSouth
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- groveSouth
+    description "a grove"
+    explanation "grove"
+    tags        "grove south"
+    details     "You are now in a wild area.\n"
+    capacity    9999
+    sector      2
+
+- wallGroveSouth
+    condition   { return trigger < 100004 ; }
+    description "an area of ​​dry and crushed vegetation before a sheet metal structure "
+    tags        "west", "east", "nature"
+    location    groveSouth
+    details     "The area is surrounded by bushes.\n"
+    textGo      "Shrubs are blocking the way.\n"
+
+- wallGroveSouthBurn
+    condition   { return trigger >= 100004 ; }
+    description "an area of ​​burning vegetation before a sheet metal structure "
+    tags        "west", "east", "nature"
+    location    groveSouth
+    details     "The area is surrounded by burning bushes.\n"
+    textGo      "Flames are blocking the way.\n"
+
+- garage
+     description "a dirty garage"
+     explanation "garage"
+     tags        "garage", "structure", "metal structure", "metal"
+     details     "The garage is dirty and dark, it smells funny.\n"
+     capacity    9999
+     sector      1
+
+- wallGarage
+     condition   { return trigger < 100001 ; }
+     description "that everything has been destroyed "
+     tags        "west", "south"
+     location    garage
+     details     "It seems that here there has been a fight.\n"
+     textGo      "The garage is not very large to move around in.\n"
+
+- wallGarageBurn
+     condition   { return trigger >= 100001 ; }
+     description "that everything has been destroyed "
+     tags        "west", "south"
+     location    garage
+     details     "It seems that here there has been a fight here.\n"
+     textGo      "Inside the garage the heat is extreme.\n"
+
+- garageBox
+     condition   { return trigger < 100001 ; }
+     description "and a lot of broken boxes are on the floor."
+     explanation "box"
+     tags        "east", "broken", "boxes", "box", "floor", "garage floor", "floor garage"
+     location    garage
+     details     "Some boxes have been thrown on the floor.\n"
+     textGo      "The garage is not very large to move around in.\n"
+
+- garageBoxBurn
+      condition   { return trigger >= 100001 ; }
+      description "and a lot of broken boxes are in flames."
+      explanation "box"
+      tags        "east", "box", "boxes"
+      location    garage
+      details     "The boxes on the floor are burning.\n"
+      textGo      "Inside the garage the heat is extreme.\n"
+
+- openDoorToGarage
+     description "with a rusty door.\n"
+     tags        "south", "entrance", "door", "south door", "door south", "metal door"
+     location    emptyRoom
+     destination garage
+     details     "The door is open.\n"
+     textGo      "You enter the garage.\n"
+     open        isAlreadyOpen
+     close       toggleGarageDoor
+     lock        isStillOpen
+     unlock      isAlreadyOpen
+
+- closedDoorToGarage
+     description "with a rusty door.\n"
+     tags        "south", "entrance", "door", "south door", "door south", "metal door"
+     location    emptyRoom
+     prospect    garage
+     details     "The door is closed.\n"
+     textGo      "The door is closed.\n"
+     open        toggleGarageDoor
+     close       isAlreadyClosed
+     lock        toggleGarageDoorLock
+     unlock      isAlreadyUnlocked
+
+- lockedDoorToGarage
+     description "with a rusty door.\n"
+     tags        "south", "entrance", "door", "south door", "door south", "metal door"
+     location    groveSouth
+     prospect    garage
+     details     "The door is locked.\n"
+     textGo      "The door is locked.\n"
+     open        isStillLocked
+     close       isAlreadyClosed
+     lock        isAlreadyLocked
+     unlock      toggleGarageDoorLock
+
+- knife
+      description "A bloodstained hunting knife lies in the grass.\n"
+      explanation "knife"
+      tags        "knife", "hunting knife", "blood"
+      location    groveSouth
+      details     "The knife is stained with blood.\n"
+      weight      4
+      impact      5
+      burn        1
+
+- exitGroveSouth
+    condition   { return man->health > 0 ; }
+    description "The path ends here.\n"
+    tags        "north", "path", "grove path", "north path", "path north", "grass"
+    location    groveSouth
+    destination groveNorth
+    details     "An old garden path covered in crushed grass.\n"
+    textGo      "You follow the crushed grass.\n"
+
+- exitGroveSouthBurn
+    condition   { return man->health <= 0 ; }
+    description "An old garden path leads north.\n"
+    tags        "north", "path", "grove path", "north path", "path north", "grass"
+    location    groveSouth
+    destination groveNorth
+    details     "An old garden path covered in burning grass.\n"
+    textGo      "You follow the grass.\n"
+
+- stoneGarage
+    condition   { return stoneGarage->location == garage ; }
+    description "\nIn the corner lay some bricks, "
+    explanation "brick"
+    tags        "brick", "stone", "bricks"
+    location    garage
+    details     "The brick is porous, not too heavy.\n"
+    weight      3
+    impact      4
+    burn        1
+
+- stoneEmpty
+    condition   { return stoneGarage->location != garage &&  gas->location == garage ; }
+    description "\nIn the corner lay "
+    explanation "corner"
+    tags        "corner"
+    location    garage
+    details     "The corner is empty.\n"
+
+- bat
+      description "a baseball bat and "
+      explanation "baseball bat"
+      tags        "bat", "wooden bat", "baseball bat"
+      location    garage
+      details     "Three and a half feet of solid wood.\n"
+      weight      5
+      impact      7
+      burn        1
+
+- gas
+      description "a plastic tank half-full of gasoline."
+      explanation "gas tank"
+      tags        "gas", "gas bottle", "bottle", "plastic bottle", "tank", "plastic tank"
+      location    garage
+      details     "The tank contains a couple of liter of gas.\n"
+      weight      3
+      burn        1
+
+- matches
+      description "some matches.\n"
+      explanation "matches"
+      tags        "match", "matches"
+      location    garageBox
+      details     "Only three matches left.\n"
+      weight      1
+      burn        1
+
+- openDoorToGroveSouth
+     description "\nA rusty door leads north.\n"
+     tags        "north", "exit", "door", "north door", "door north", "metal door"
+     location    emptyRoom
+     destination groveSouth
+     details     "The door is open.\n"
+     textGo      "You exit the garage.\n"
+     open        isAlreadyOpen
+     close       toggleGarageDoor
+
+- closedDoorToGroveSouth
+     description "\nA rusty door leads north.\n"
+     tags        "north", "exit", "door", "north door", "door north", "metal door"
+     location    garage
+     prospect    groveSouth
+     details     "The door is closed.\n"
+     textGo      "The door is closed.\n"
+     open        toggleGarageDoor
+     close       isAlreadyClosed
+
+- man
+     condition   { return man->health > 0 ; }
+     description "\nA man looks at you furiously, his face is full of scratches and his nose is broken.\n"
+     explanation "old janitor"
+     tags        "man", "janitor", "old janitor"
+     location    garage
+     details     "The man has been beaten up and doused with petrol.\n"
+     contents    "He has"
+     weight      20
+     capacity    15
+     health      15
+     impact      2
+     trust       -1
+
+- manDead
+    condition   { return man->health == 0 ; }
+    description "On the floor, a man is lying in a pool of blood.\n"
+    explanation "old janitor"
+    tags        "man", "janitor", "old janitor", "blood"
+    location    garage
+    details     "The man has deep wounds and bruises all over his body.\n"
+    contents    "He has"
+    weight      20
+
+- manBurn
+    condition   { return man->health == -1 ; }
+    description "On the floor, a dead man is covered in flames.\n"
+    explanation "old janitor"
+    tags        "man", "janitor", "old janitor"
+    location    garage
+    details     "The man is burning.\n"
+    contents    "He has"
+    weight      15
+
+- porch
+    description "a porch"
+    explanation "porch"
+    tags        "porch", "floor", "porch floor", "floor porch"
+    details     "The old porch has suffered the passage of time.\n"
+    capacity    9999
+    sector      5
+
+- wallPorch
+    condition   { return trigger < 100016 ; }
+    description "the front yard, in the moonlight it gives you a calm feeling.\n"
+    tags        "west", "south", "railing"
+    location    porch
+    details     "The porch is surrounded by a rusty iron railing.\n"
+    textGo      "The railing is blocking the way.\n"
+
+- wallPorchBurn
+    condition   { return trigger >= 100016 ; }
+    description "the glow of the fire reflected in the night.\n"
+    tags        "west", "south", "railing"
+    location    porch
+    details     "The porch is surrounded by a rusty iron railing.\n"
+    textGo      "The railing is blocking the way.\n"
+
+- intoHouse
+     description "The main entrance leads north "
+     tags        "north", "entrance", "door", "glass door"
+     location    porch
+     destination entryway
+     details     "A glass door.\n"
+     textGo      "You enter the house.\n"
+     open        isAlreadyOpen
+
+- exitPorch
+    description "and a short staircase goes east.\n"
+    tags        "east", "exit", "steps", "staircase"
+    location    porch
+    destination gardenEast
+    details     "Three steps connect the porch to the front yard.\n"
+    textGo      "You go down the stairs.\n"
+
+- exitHouse
+     condition   { return trigger < 100012 ; }
+     description "a wooden entry door with decorative glass pattern leading south "
+     tags        "south", "exit", "glass door", "glass", "pattern", "entry door", "south door", "glass pattern"
+     location    entryway
+     destination porch
+     details     "Moonlight pours in through the glass door.\n"
+     textGo      "You walk out of the house.\n"
+     open        isAlreadyOpen
+
+- exitHouseBurn
+      condition   { return trigger >= 100012 ; }
+      description "broken glass pieces on the floor.\n"
+      tags        "south", "exit", "glass door", "glass"
+      location    entryway
+      destination porch
+      details     "The glass door shattered, pieces of glass are all around the floor.\n"
+      textGo      "You walk out of the house.\n"
+      open        isAlreadyOpen
+
+- entryway
+    description "a small entryway"
+    explanation "entryway"
+    tags        "entryway", "floor", "mud", "marks", "mud marks", "mud mark", "entryway floor", "floor entryway"
+    details     "There are dark mud marks on the floor.\n"
+    capacity    9999
+    sector      4
+    light       1
+
+- wallEntryway
+    condition   { return trigger < 100012 ; }
+     description "and some jackets hanging on a clothes hanger.\n"
+     tags        "west", "jackets", "jacket", "clothes hanger", "hanger"
+     location    entryway
+     details     "Those are autumn jackets, not too thick.\n"
+     textGo      "You lean against the wall to rest a bit.\n"
+
+- wallEntrywayBurn
+    condition   { return trigger >= 100012 ; }
+     description "The house is almost totally burnt down, it is collapsing under its own weight.\n"
+     tags        "west", "east", "north"
+     location    entryway
+     details     "A clean entryway.\n"
+     textGo      "You can not walk through the flames.\n"
+
+- kitchen
+     description "a kitchen"
+     explanation "kitchen"
+     tags        "kitchen", "floor", "kitchen floor", "floor kitchen"
+     details     "The kitchen is small but functional.\n"
+     capacity    9999
+     sector      4
+     light       1
+
+- wallKitchen
+     description "shelves full of containers all around, the person who lives here has been stocking up on food for months.\n"
+     tags        "north", "north shelves", "containers", "food"
+     location    kitchen
+     details     "This food must be cooked and you don't have enough strength to do it.\n"
+     textGo      "Shelves fill the whole wall.\n"
+
+- kitchenShelves
+      description "Moving your gaze you notice other shelves, those ones full of dishes and pans.\n"
+      explanation "shelves"
+      tags        "east", "shelves", "east shelves", "pans", "pan", "dishes", "pots", "pot", "cutlery"
+      location    kitchen
+      details     "You see dishes, pots and cutlery.\n"
+      textGo      "Shelves fill the whole wall.\n"
+      burn        1
+
+- kitchenSink
+     description "A metallic sink, "
+     explanation "sink"
+     tags        "sink", "tap", "dirty dishes"
+     location    kitchen
+     details     "The sink is half full of dirty dishes, the tap is leaking.\n"
+     burn        1
+
+- openDrawer
+     description "a small drawer "
+     explanation "drawer"
+     tags        "drawer", "small drawer"
+     location    kitchen
+     details     "The drawer is open.\n"
+     burn        1
+
+- knifeBlock
+    condition   { return knifeShort->location == openDrawer ; }
+    description "a knife block inside the drawer. One knife is missing, "
+    explanation "wooden knife block"
+    tags        "block", "knife block"
+    location    openDrawer
+    details     "One knife is missing, the remaining ones are too short and not very sharp.\n"
+    weight      100
+    burn        1
+
+- knifeBlockEmpty
+    condition   { return knifeShort->location != openDrawer ; }
+    description "a knife block inside the drawer. Two knives are missing.\n"
+    explanation "wooden knife block"
+    tags        "block", "knife block"
+    location    openDrawer
+    details     "Two knives are missing, the remaining ones are not very sharp.\n"
+    weight      100
+    burn        1
+
+- knifeShort
+    description "the remaining ones are too short and not very sharp.\n"
+    explanation "short knife"
+    tags        "short knife", "knife"
+    location    openDrawer
+    details     "It's a small fruit knife.\n"
+    weight      2
+    impact      4
+    burn        1
+
+- closedFridge
+     description "and some new appliances stand out in what is an old kitchen. You see a refrigerator "
+     explanation "fridge"
+     tags        "refrigerator", "fridge", "appliances"
+     location    kitchen
+     details     "The fridge is closed.\n"
+     capacity    10
+     burn        1
+     open        toggleFridge
+     close       isAlreadyClosed
+
+- openFridge
+     description "and some new appliances stand out in what is an old kitchen. You see a refrigerator "
+     explanation "fridge"
+     tags        "refrigerator", "fridge", "appliances", "light"
+     location    emptyRoom
+     details     "The fridge is almost empty, the light is cold and bright.\n"
+     capacity    10
+     burn        1
+     open        isAlreadyOpen
+     close       toggleFridge
+
+- stove
+      description "and a stove.\n"
+      explanation "stove"
+      tags        "stove", "cookers"
+      location    kitchen
+      details     "There are some old leftovers in a pan on the stove.\n"
+      burn        1
+
+- rawMeat
+    description "some raw meat "
+    explanation "piece of meat"
+    tags        "meat", "chicken", "raw meat"
+    location    openFridge
+    details     "The meat is raw, you don't have the strength to cook it.\n"
+    weight      3
+    power       -4
+    burn        1
+
+- eggsBoiled
+    description "and two eggs.\n"
+    explanation "egg"
+    tags        "eggs", "egg"
+    location    openFridge
+    details     "The eggs are hard boiled.\n"
+    weight      3
+    power       4
+    burn        1
+
+- leftover
+    description "leftover mashed potatoes.\n"
+    explanation "leftovers"
+    tags        "leftover", "leftovers", "potatoes", "mashed potatoes", "potato"
+    location    stove
+    details     "The leftovers are cold but edible.\n"
+    weight      3
+    power       5
+    burn        1
+
+- wallKitchenWindow
+    description "A window is facing south, but it's too dark to see anything outside.\n"
+    tags        "south", "window"
+    location    kitchen
+    details     "It's dark outside, you can't see anything.\n"
+    textGo      "The window is closed shut.\n"
+
+- intoCorridor
+      condition    { return trigger < 100012 ; }
+      description "An arch entryway leads north and "
+      tags        "north", "entrance", "entry", "arch north", "arch"
+      location    entryway
+      destination corridor
+      details     "A stuffed deer head decorates the entrance.\n"
+      textGo      "You enter the corridor.\n"
+      open        isAlreadyOpen
+
+- intoKitchen
+      condition   { return trigger < 100012 ; }
+      description "a door leads east.\n"
+      tags        "east", "entrance", "door", "east door", "door east"
+      location    entryway
+      destination kitchen
+      details     "A normal wooden door.\n"
+      textGo      "You enter the kitchen.\n"
+      open        isAlreadyOpen
+
+- exitKitchen
+      description "A door leads west, outside of the kitchen.\n"
+      tags        "west", "exit", "door", "west door", "door west"
+      location    kitchen
+      destination entryway
+      details     "A normal wooden door.\n"
+      textGo      "You walk out of the kitchen.\n"
+      open        isAlreadyOpen
+
+- corridor
+    description "a narrow corridor, there is a lot of chaos, something happened here"
+    explanation "corridor"
+    tags        "corridor", "floor", "wood", "pieces", "corridor floor", "floor corridor"
+    details     "The corridor is a mess, there are broken pieces of wood on the floor.\n"
+    capacity    9999
+    sector      4
+    light       1
+
+- wallCorridor
+    description "a painting depicting a pier on the wall and "
+    tags        "east", "walls", "wall", "painting", "paint", "pier"
+    location    corridor
+    details     "It is an amateur painting but well done, nothing artistic but pleasing to the eye.\n"
+    textGo      "You lean against the wall to rest a bit.\n"
+    capacity     9999
+
+- exitCorridor
+      description "a deer head on the arch entry leading south.\n"
+      tags        "south", "entrance", "entry", "arch south", "arch", "deer", "deer head", "head"
+      location    corridor
+      destination entryway
+      details     "A stuffed deer head decorates the entrance.\n"
+      textGo      "You walk out of the corridor.\n"
+      open        isAlreadyOpen
+
+- bloodCorridor
+    condition    { return flashCountA > 0 ; }
+    description "There are traces of blood on the ground.\n"
+    tags        "blood", "trace", "blood trace"
+    location    corridor
+    details     "The blood seems fresh.\n"
+
+- bedroom
+     description "a bedroom"
+     explanation "bedroom"
+     tags        "bedroom", "floor", "bedroom floor", "floor bedroom"
+     details     "The room is a bit messy, but it looks normal.\n"
+     capacity    9999
+     sector      4
+     light       1
+
+- wallBedroom
+     description "walls that need some painting, "
+     tags        "south", "walls", "wall", "paint"
+     location    bedroom
+     details     "The paint on the walls is peeling off in some places.\n"
+     textGo      "You lean against the wall to rest a bit.\n"
+
+
+- closetBedroom
+      description "a big closet and "
+      explanation "closet"
+      tags        "closet"
+      location    bedroom
+      details     "The closet has heavy wooden doors, it looks old-fashioned.\n"
+      textGo      "The closet contains clean clothes and underwear.\n"
+      burn        1
+
+- clothesBedroom
+      description "pants, shirts and underwear. They are too big for you.\n"
+      explanation "clothes"
+      tags        "pants", "shirts", "underwear", "clothes"
+      location    closetBedroom
+      details     "They are too big for you.\n"
+      weight      100
+      burn        1
+
+- bed
+      description "a double bed covered with "
+      explanation "bed"
+      tags        "bed", "double bed"
+      location    bedroom
+      details     "The bed occupies almost the entire room.\n"
+      textGo      "You don't want to sit on the bed. Given your injuries, getting up would be too tiring.\n"
+      burn        1
+
+- sheets
+       description "dark sheets. "
+       explanation "sheets"
+       tags        "sheet", "sheets", "blood"
+       location    bedroom
+       details     "There is fresh blood on the blankets.\n"
+       weight      100
+       burn        1
+
+- pillow
+       description "In a corner lays a pillow.\n"
+       explanation "pillow"
+       tags        "pillow"
+       location    bedroom
+       details     "It's a normal pillow, nothing special.\n"
+       weight      100
+       burn        1
+
+- windowBedroom
+      description "A window is facing north, but it's too dark to see anything outside.\n"
+      tags        "north", "window", "north window", "window north"
+      location    bedroom
+      details     "A closed window.\n"
+      textGo      "You try to look outside but it's too dark.\n"
+
+- intoBathroom
+      description "A door leads west and "
+      tags        "west", "entrance", "door", "west door", "door west"
+      location    bedroom
+      destination bathroom
+      details     "An old wooden door with a small window.\n"
+      textGo      "You enter the bathroom.\n"
+      open        isAlreadyOpen
+
+- intoBedroom
+      description "A door leads west "
+      tags        "west", "entrance", "door", "west door", "door west"
+      location    corridor
+      destination bedroom
+      details     "A wooden door, it creaks when it opens.\n"
+      textGo      "You enter the bedroom.\n"
+      open        isAlreadyOpen
+
+- exitBedroom
+      description "another leads east.\n"
+      tags        "east", "exit", "door", "east door", "door east"
+      location    bedroom
+      destination corridor
+      details     "A wooden door, it creaks when it opens.\n"
+      textGo      "You walk out of the bedroom.\n"
+      open        isAlreadyOpen
+
+- bathroom
+      description "a bathroom"
+      explanation "bathroom"
+      tags        "bathroom", "floor", "bathroom floor", "floor bathroom"
+      details     "The light is dim and the smell is not very pleasant.\n"
+      capacity    9999
+      sector      4
+      light       1
+
+- wallBathroom
+       description "wallpaper yellowed by time, "
+       tags        "north", "south", "wallpaper", "walls", "pattern", "floral", "floral pattern", "wall"
+       location    bathroom
+       details     "The wallpaper has a floral pattern, the wall under it seems a bit moldy.\n"
+       textGo      "You can't go that way.\n"
+
+- wallBathroomWest
+       description "a small window in front of you "
+       tags        "west", "window", "small window"
+       location    bathroom
+       details     "The window is closed.\n"
+       textGo      "You try to look outside but it's too dark.\n"
+
+- openToilet
+      description "and an open tainted toilet.\n"
+      explanation "toilet"
+      tags        "toilet", "wc", "lid", "toilet lid"
+      location    emptyRoom
+      details     "Someone threw up in the toilet.\n"
+      open        isAlreadyOpen
+      close       toggleToilet
+
+- closedToilet
+      description "and a tainted toilet.\n"
+      explanation "toilet"
+      tags        "toilet", "wc", "blood", "lid", "toilet lid"
+      location    bathroom
+      details     "The toilet lid is closed and stained with fresh blood.\n"
+      open        toggleToilet
+      close       isAlreadyClosed
+
+- letter1
+      description "a piece of paper.\n"
+      explanation "first piece of paper"
+      tags        "piece", "first piece", "first letter", "letter", "paper", "first paper", "first piece of paper", "piece of paper"
+      location    openToilet
+      details     "The paper is wet and stained but readable.\n"
+      weight      1
+      burn        1
+      read        "\"You have to take control of things, the situation is different from what I believed it was for many years.\nI have always tried to protect you during your self-destructive moments, always staying in the shadows.\nToday everything has changed.\"\n"
+
+- bathroomSink
+      condition   { return mirror->location == bathroom ; }
+      description "In the sink there are "
+      explanation "sink"
+      tags        "sink", "faucet"
+      location    bathroom
+      details     "A normal sink, the faucet drips.\n"
+      burn        1
+
+- mirror
+      description "shards of mirror "
+      explanation "mirror piece"
+      tags        "mirror", "piece", "mirror piece", "shard", "shards", "broken mirror"
+      location    bathroom
+      details     "It looks like someone smashed the mirror until it broke.\n"
+      weight      2
+      impact      4
+      burn        1
+
+- bathroomSinkEmpty
+      condition   { return mirror->location != bathroom ; }
+      description "The sink is empty "
+      explanation "sink"
+      tags        "sink"
+      location    bathroom
+      details     "A normal sink, the faucet drips.\n"
+      burn        1
+
+- mirrorFrame
+      description "and what remains of a mirror frame is hanging on the wall.\n"
+      explanation "mirror frame"
+      tags        "mirror frame", "frame"
+      location    bathroom
+      details     "It looks like someone hit the mirror until it broke.\n"
+      burn        1
+
+- trashcan
+      description "Under the sink lies an upturned trashcan.\n"
+      explanation "trashcan"
+      tags        "trashcan", "trash can", "basket", "trash", "can"
+      location    bathroom
+      details     "The trashcan is half-full with bloodstained toilet paper and litter.\n"
+      weight      100
+      capacity    6
+      burn        1
+
+- vitaminPacket
+      condition   { return vitamin->location == vitaminPacket ; }
+      description "an expired vitamin packet.\n"
+      explanation "pack of vitamins"
+      tags        "packet", "vitamin packet", "pack", "pills", "pack of vitamin"
+      location    trashcan
+      details     "The package is crushed but does not seem empty.\n"
+      weight      2
+      capacity    1
+      burn        1
+      open        isAlreadyOpen
+      close       cannotBeClosed
+
+- vitamin
+      description "a bunch of pills.\n"
+      explanation "vitamins"
+      tags        "vitamins", "vitamin", "pill", "tablets", "pills"
+      location    vitaminPacket
+      details     "Even if they are expired, they may help to relieve the headache.\n"
+      weight      1
+      power       3
+      burn        1
+
+- exitBathroom
+      description "A door leads east.\n"
+      tags        "east", "exit", "door", "east door", "east door"
+      location    bathroom
+      destination bedroom
+      details     "An old wooden door with a small window.\n"
+      textGo      "You walk out of the bathroom.\n"
+      open        isAlreadyOpen
+
+- livingRoom
+       description "a living room"
+       explanation "living room"
+       tags        "living", "living room", "floor", "living room floor", "floor living room"
+       details     "The living room is big and dimly-lit, but somehow cozy.\n"
+       capacity    9999
+       sector      4
+       light       1
+
+- livingRoomShelves
+      description "a bookcase that covers almost the entire wall, it is a large piece of brown wooden furniture.\n"
+      explanation "bookcase"
+      tags        "bookcase", "shelf", "shelves", "furniture", "wall"
+      location    livingRoom
+      details     "The shelves are full of books.\n"
+      capacity    20
+      burn        1
+
+- couch
+      description "On your left side you see an old sofa "
+      explanation "couch"
+      tags        "couch", "sofa"
+      location    livingRoom
+      details     "The couch is worn out by use.\n"
+      textGo      "You don't want to sit on the sofa. Given your injuries, getting up would be too tiring.\n"
+      burn        1
+
+- tvSet
+      description "opposite a television.\n"
+      explanation "television"
+      tags        "tv", "television"
+      location    livingRoom
+      details     "It's a big old cathode ray tube television.\n"
+      burn        1
+
+- bookOne
+      description "a short book by Freud, "
+      explanation "book by Freud"
+      tags        "freud", "freud book", "book", "books"
+      location    livingRoomShelves
+      details     "The book is titled \"Three Essays on the Theory of Sexuality\" and some pages are marked.\n"
+      weight      2
+      burn        1
+      read        "\"The Sources of Infantile Sexuality\"\nOur efforts to trace the origins of the sexual instinct have shown us so far that sexual excitation arises as a reproduction of a satisfaction experienced in connection with other organic processes, through appropriate peripheral stimulation of erotogenic zones and as an expression of certain instincts."
+
+- bookTwo
+      description "an old copy of a book by De Sade, "
+      explanation "book by De Sade"
+      tags        "de sade", "de sade book", "desade", "desade book", "book", "books"
+      location    livingRoomShelves
+      details     "The book is titled \"120 Days Of Sodom\" and some pages are marked.\n"
+      weight      2
+      burn        1
+      read        "The time drew nigh for the examination of the little boys. Easier to obtain, their number was greater. It will surely be no exaggeration if I affirm that they at least equaled the little girls, as much in their innocence, and their elevated rank. Thirty thousand francs were paid for each of them."
+
+- bookThree
+      description "and another book, maybe a manual, on the same genre.\n"
+      explanation "psychology manual"
+      tags        "other book", "another book", "manual"
+      location    livingRoomShelves
+      details     "You headache is too severe to read anymore.\n"
+      weight      2
+      burn        1
+      read        "\"Diagnostic and Statistical Manual of Mental Disorders\", this book seems much more difficult than the others."
+
+- windowLivingRoom
+      description "A window is facing west, but it's too dark to see anything outside.\n"
+      tags        "west","window", "west window", "window west"
+      location    livingRoom
+      details     "A closed window.\n"
+      textGo      "The window is closed shut.\n"
+
+- intoLivingRoom
+      description "while another door leads north.\n"
+      tags        "north", "entrance", "door", "north door", "door north"
+      location    corridor
+      destination livingRoom
+      details     "A brown door.\n"
+      textGo      "You enter the living room.\n"
+      open        isAlreadyOpen
+
+- exitLivingRoom
+      description "A door leads south, "
+      tags        "south", "exit", "door", "south door", "door south"
+      location    livingRoom
+      destination corridor
+      details     "Just a common door.\n"
+      textGo      "You walk out of the living room.\n"
+      open        isAlreadyOpen
+
+- closet
+      description "a small closet"
+      explanation "closet"
+      tags        "closet", "floor", "closet floor", "floor closet"
+      details     "The closet is small and dark.\n"
+      capacity    9999
+      sector      4
+      light       1
+
+- wallCloset
+      description "a lot of boxes "
+      explanation "boxes"
+      tags        "north", "east", "box", "boxes", "junk"
+      location    closet
+      details     "The boxes are not so interesting.\n"
+      textGo      "The boxes are full of junk.\n"
+
+- wallClosetClothes
+      description "and some winter clothes, "
+      explanation "clothes"
+      tags        "clothes", "winter clothes", "west"
+      location    closet
+      details     "The clothes are too big for you.\n"
+      textGo      "Some big jackets and a pair of waterproof pants hang from a coat rack.\n"
+
+- lampOff
+     description "a torch lays on a shelf.\n"
+     explanation "torch"
+     tags        "torch"
+     location    closet
+     details     "The torch is off.\n"
+     weight      4
+     capacity    2
+
+- shelfCloset
+    condition   { return lampOff->location != closet || lampOn->location != closet ; }
+    description "an empty shelf.\n"
+    explanation "shelf"
+    tags        "shelf", "shelves"
+    location    closet
+    details     "A wooden shelf.\n"
+    weight      100
+    capacity    5
+
+- lampOn
+     description "an old torch"
+     explanation "torch"
+     tags        "torch"
+     location    emptyRoom
+     details     "The torch is on.\n"
+     weight      4
+     capacity    2
+
+- openDoorToCloset
+       description "a second door leads north "
+       tags        "north", "entrance", "door", "north door", "door north", "metal door"
+       location    emptyRoom
+       destination closet
+       details     "The door is open.\n"
+       textGo      "You walk through the door into a closet.\n"
+       open        isAlreadyOpen
+       close       toggleClosetDoor
+
+- closedDoorToCloset
+       description "a second door leads north "
+       tags        "north", "entrance", "door", "north door", "door north", "metal door"
+       location    livingRoom
+       prospect    closet
+       details     "The door is closed.\n"
+       textGo      "The door is closed.\n"
+       open        toggleClosetDoor
+       close       isAlreadyClosed
+
+- openDoorToLivingRoom
+        description "A door leads south.\n"
+        tags        "south", "exit", "door", "south door", "door south", "metal door"
+        location    emptyRoom
+        destination livingRoom
+        details     "The door is open.\n"
+        textGo      "You walk through the door into a closet.\n"
+        open        isAlreadyOpen
+        close       toggleClosetDoor
+
+- closedDoorToLivingRoom
+        description "A door leads south.\n"
+        tags        "south", "exit", "door", "south door", "door south", "metal door"
+        location    closet
+        prospect    livingRoom
+        details     "The door is closed.\n"
+        textGo      "The door is closed.\n"
+        open        toggleClosetDoor
+        close       isAlreadyClosed
+
+- intoGuestRoom
+        description "while a third door leads east.\n"
+        tags        "east", "entrance", "door", "east door", "door east"
+        location    livingRoom
+        destination guestRoom
+        details     "A brown door.\n"
+        textGo      "You enter the guest room.\n"
+        open        isAlreadyOpen
+
+- guestRoom
+        description "what used to be a guest room, but is now used as a storage room"
+        explanation "guest room"
+        tags        "guest room", "guest", "storage", "storage room", "floor", "wall", "guest room floor", "storage floor", "storage room floor", "floor storage", "floor guest room", "floor storage room"
+        details     "The guest room has not been used for a long time.\n"
+        capacity    9999
+        sector      4
+        light       1
+
+- wallGuestRoom
+        description "a wall covered with unfinished paintings, "
+        tags        "north", "paiting", "paintings", "woods", "water"
+        location    guestRoom
+        details     "Acrylic paintings, depicting woods and water.\n"
+        textGo      "The paintings are leaning against the wall.\n"
+
+- wallGuestRoomTable
+        description "a large drafting table and "
+        tags        "table", "east", "sketches", "drafts", "sketch", "draft"
+        location    guestRoom
+        details     "Old sketches and drafts are scattered on the table.\n"
+        textGo      "The table is quite wide, it occupies almost the entire wall.\n"
+
+- boxGuestRoom
+        description "several boxes stacked all around the room.\n"
+        explanation "boxes"
+        tags        "box", "boxes"
+        location    guestRoom
+        details     "There seem to be documents inside those boxes.\n"
+        capacity    20
+        burn        1
+
+- vhs
+      description "old movies on VHS, "
+      explanation "vhs"
+      tags        "vhs", "tapes", "vhs tapes", "tape", "title", "movie", "movies", "titles"
+      location    boxGuestRoom
+      details     "By the titles you don't think you know those movies.\n"
+      weight      2
+      burn        1
+      read        "One of the VHS movies is called \"ChickenHawk\"."
+
+- papers
+      description "some handwritten note papers, "
+      explanation "handwritten paper"
+      tags        "note papers", "notepapers", "note paper", "notepaper", "note", "paper", "papers", "notes"
+      location    boxGuestRoom
+      details     "The hand writing is nervous and almost illegible.\n"
+      weight      1
+      burn        1
+      read        "You can only read a few words: \"minor-attracted persons\", \"it will be years before this society can have a non-hysterical conversation about kids and sex\", \"I was unfairly fired from\" and \"nambla should be no law against adults engaging\"."
+
+- battery
+      description "batteries mixed in "
+      explanation "battery"
+      tags        "batteries", "battery"
+      location    boxGuestRoom
+      details     "Those batteries seem new.\n"
+      weight      2
+
+- boxJunk
+      description "a bunch of uninteresting junk.\n"
+      explanation "junk"
+      tags        "junk", "objects", "object"
+      location    boxGuestRoom
+      details     "The remaining objects are not so interesting.\n"
+      weight      100
+      burn        1
+
+- intoGuestBathoom
+        description "A door with a small window leads south "
+        tags        "south", "entrance", "door", "south door", "door south", "window"
+        location    guestRoom
+        destination guestBathroom
+        details     "A brown door with a small window.\n"
+        textGo      "You enter the guest bathroom.\n"
+        open        isAlreadyOpen
+
+- exitGuestRoom
+        description "while a second door leads west.\n"
+        tags        "west", "exit", "door", "west door", "door west"
+        location    guestRoom
+        destination livingRoom
+        details     "Just a common door.\n"
+        textGo      "You walk out of the guest room.\n"
+        open        isAlreadyOpen
+
+- guestBathroom
+        description "the guest bathroom"
+        explanation "guest bathroom"
+        tags        "guest bathroom", "guest", "bathroom", "floor", "bathroom floor", "floor bathroom"
+        details     "The guest bathroom has not been used for a long time.\n"
+        capacity    9999
+        sector      4
+
+- wallGuestBathroom
+        description "that everything is covered with black cloth, you notice a smell of bitter almonds.\n"
+        tags        "west", "east", "south", "cloth"
+        location    guestBathroom
+        details     "It looks like a darkroom\n"
+        textGo      "The room is very small, you can not move much.\n"
+
+- closedBoxPhoto
+      description "A large transparent plastic box is in the middle of the room, and "
+      explanation "plastic box"
+      tags        "plastic box", "box"
+      location    guestBathroom
+      details     "The box is closed.\n"
+      burn        1
+      open        toggleBoxPhoto
+      close       isAlreadyClosed
+
+- openBoxPhoto
+      description "A large transparent plastic box is in the middle of the room, and "
+      explanation "plastic box"
+      tags        "plastic box", "box"
+      location    emptyRoom
+      details     "The box is open.\n"
+      burn        1
+      open        isAlreadyOpen
+      close       toggleBoxPhoto
+
+- darkroomEquipment
+      description "several pieces of darkroom equipment such as lenses, trays and chemistry bottles. It's normal equipment, and does not seem to have been used recently.\n"
+      explanation "equipment"
+      tags        "equipment", "darkroom equipment", "chemistry", "lenses", "trays", "bottles", "lens", "tray", "bottle"
+      location    openBoxPhoto
+      details     "Normal equipment, does not seem to have been used recently.\n"
+      weight      100
+      burn        1
+
+- exitGuestBathroom
+        description "a door with a small window leads north.\n"
+        tags        "north", "exit", "door", "north door", "door north", "window"
+        location    guestBathroom
+        destination guestRoom
+        details     "A brown door with a small window.\n"
+        textGo      "You walk out of the guest bathroom.\n"
+        open        isAlreadyOpen
+
+- wildDog
+      condition   { return (wildDog->health > 0 && (rawMeat->location != wildDog && meat->location != wildDog && oldFoxDead->location != wildDog)) && man->health >=0 ; }
+      description "A stray dog slowly comes towards you.\n"
+      explanation "stray dog"
+      tags        "dog", "stray", "stray dog", "teeth"
+      location    fieldSouth
+      details     "The stray dog bares its teeth.\n"
+      weight      10
+      capacity    3
+      health      9
+      impact      2
+      trust       0
+      animal      1
+      burn        1
+
+- wildDogSleep
+      condition   { return ((wildDog->health > 0 && wildDogSleep->health > 0) && ((rawMeat->location == wildDog || meat->location == wildDog) || oldFoxDead->location == wildDog)) && man->health >= 0 ; }
+      description "The stray dog felt asleep.\n"
+      explanation "stray dog"
+      tags        "dog", "stray", "stray dog"
+      location    fieldSouth
+      details     "A sleeping dog, it doesn't seem aggressive.\n"
+      weight      10
+      capacity    3
+      health      10
+      impact      2
+      trust       0
+      animal      1
+      burn        1
+
+- wildDogDead
+      condition   { return (wildDog->health <= 0 || wildDogSleep->health <= 0) && man->health >=0 ; }
+      description "The carcass of a dog lays lifeless on the floor.\n"
+      explanation "stray dog"
+      tags        "dog", "stray", "stray dog", "carcass", "corpse", "blood"
+      location    fieldSouth
+      details     "A corpse of a stray dog, covered in blood.\n"
+      weight      10
+      trust       0
+      animal      1
+
+- oldFox
+      condition   { return oldFox->health > 0 ; }
+      description "A fox attracted by blood approaches you.\n"
+      explanation "fox"
+      tags        "fox", "wild", "old fox", "animal"
+      location    emptyRoom
+      details     "A fox looking for food.\n"
+      weight      4
+      capacity    3
+      health      5
+      impact      1
+      trust       0
+      animal      1
+      burn        1
+
+- oldFoxDead
+      condition   { return oldFox->health <= 0 ; }
+      description "The corpse of a fox lies on the floor.\n"
+      explanation "fox"
+      tags        "fox", "wild", "old fox", "corpse", "animal"
+      location    emptyRoom
+      details     "A corpse of a fox, it has been beaten.\n"
+      weight      3
+      trust       0
+      animal      1
+      burn        1
+
+- meat
+      description "Some animal carcass lies on the ground.\n"
+      explanation "carcass of a squirrel"
+      tags        "carcass", "animal", "meat", "squirrel"
+      location    woodsSouth
+      details     "It's the carcass of a squirrel, the animal has recently died.\n"
+      weight      2
+      burn        1
+
+- emptyRoom
+      description "the place where unused objects go"
+      explanation "empty room"
+      tags        "emptyRoom"
+      details     "Only for internal use, not public"
+      capacity    99999
+
+- wallEmptyRoom
+      description "the place where unused objects go"
+      tags        "west", "east", "south", "north"
+      location    emptyRoom
+      details     "Only for internal use, not public"

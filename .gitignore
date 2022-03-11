@@ -1,4 +1,5 @@
 *.DS_Store
+map.gv
 map.png
 spirit
 *.zip

@@ -9,7 +9,7 @@ Psychological thriller & exploration game • One hour • Parser-based
 
 You can find the executables for Win/OsX/Linux here: https://jqrsound.itch.io/the-spirit-within-us
 
-——
+-
 
 A personal note.
 

@@ -1,5 +1,3 @@
-# TheSpiritWithinUs
-
 THE SPIRIT WITHIN US is a text-based psychological thriller & exploration game in C with four different endings based on the choices made during the game, leaving the player to decide the best course of action.
 
 THE SPIRIT WITHIN US follows natural rules. The player has only one life, and when the energy level reaches zero the player dies and the game ends.

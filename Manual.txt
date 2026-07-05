@@ -57,5 +57,4 @@ Language consultant: Rebecca Pedinoff
 v0.35 - 2022 MIT License
 
 If you like my game, feel free to support my music at:
-effter.bandcamp.com
 apwnm.bandcamp.com

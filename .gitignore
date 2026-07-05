@@ -1,4 +1,9 @@
-*.DS_Store
+# Docker & System Files
+.dockerignore
+.DS_Store
+Thumbs.db
+
+# Files created during the make
 map.gv
 map.png
 spirit

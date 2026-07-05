@@ -100,7 +100,7 @@ int credits(void)
   printf("Language consultant: Rebecca Pedinoff\n\n");
   printf("v0.35 - 2021 MIT License\n\n\n");
   printf("If you like my game, feel free to support my music at:\n");
-  printf("  effter.bandcamp.com\n  apwnm.bandcamp.com\n");
+  printf("  apwnm.bandcamp.com\n");
   a = anyKeyManual();
   return a;
 }
